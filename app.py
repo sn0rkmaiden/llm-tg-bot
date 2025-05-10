@@ -2,7 +2,6 @@ import logging
 
 from telegram import ForceReply, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
-import configparser
 import os
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
@@ -33,10 +32,6 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Send a message when the command /update is issued."""
     await update.message.reply_text("Upload your file!")
 
-
-async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Echo the user message."""
-    await update.message.reply_text(update.message.text)
 
 lm_studio_url = "http://host.docker.internal:1234/v1" # when running in docker
 local_url = "http://localhost:1234/v1" # when running locally
