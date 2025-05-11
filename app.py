@@ -1,10 +1,14 @@
 import logging
-
 from telegram import ForceReply, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 import os
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
+from langchain.document_loaders import PyPDFLoader
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.vectorstores import Chroma
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from telegram.helpers import escape_markdown
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -15,14 +19,86 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /start is issued."""
-    user = update.effective_user
-    await update.message.reply_html(
-        rf"Hi {user.mention_html()}! Please say something!",
-        reply_markup=ForceReply(selective=True),
-    )
+text_splitter = RecursiveCharacterTextSplitter(    
+    chunk_size=512,
+    chunk_overlap=20,
+    length_function=len,
+    is_separator_regex=False,
+)
 
+embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2')
+
+def load_and_process_documents(file_path):
+    loader = PyPDFLoader(file_path)
+    pages = loader.load_and_split(text_splitter=text_splitter)
+    for page in pages:
+        page.page_content = page.page_content.replace('\n',' ')
+    return pages
+
+# async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#     """Send a message when the command /start is issued."""
+#     user = update.effective_user
+#     await update.message.reply_html(
+#         rf"Hi {user.mention_html()}! Please say something!",
+#         reply_markup=ForceReply(selective=True),
+#     )
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler for the /start command"""
+    user_id = update.effective_user.id
+    if user_id not in context.bot_data:
+        context.bot_data[user_id] = {}
+    await update.message.reply_text('Welcome! Please send me the PDF documents you want to process.')
+
+async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler for receiving PDF documents"""
+    user_id = update.effective_user.id
+    
+     # Initialize user-specific data if it doesn't exist
+    if user_id not in context.bot_data:
+        context.bot_data[user_id] = {}
+        
+    document = update.message.document
+    if document.mime_type == 'application/pdf':
+        file_id = document.file_id
+        new_file = await context.bot.get_file(file_id)
+        file_path = f"{file_id}.pdf"
+        await new_file.download_to_drive(file_path)
+        
+        pages = load_and_process_documents(file_path)
+        if 'vectordb' not in context.bot_data[user_id]:
+            vectordb = Chroma.from_documents(pages, embeddings)
+            context.bot_data[user_id]['vectordb'] = vectordb
+        else:
+            vectordb = context.bot_data[user_id]['vectordb']
+            vectordb.add_documents(pages)
+        
+        await update.message.reply_text('PDF document received and processed. You can now ask questions about the content.')
+    else:
+        await update.message.reply_text(f"Unsupported file type: {document.mime_type}. Skipping this file.")
+
+async def question_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler for answering questions based on the processed documents"""
+    user_id = update.effective_user.id
+    question = update.message.text
+    vectordb = context.bot_data.get(user_id, {}).get('vectordb')
+    if vectordb:
+        prompt = get_prompt(question, vectordb)
+        
+        messages.append({'role': 'user', 'content': prompt}) 
+        response = await client.chat.completions.create(
+            model="llama-3.2-1b-instruct",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=-1,
+        )
+
+        messages.append({'role': 'assistant', 'content': response.choices[0].message.content})
+        llm_reply = response.choices[0].message.content
+
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=escape_markdown(llm_reply))
+    else:
+        await update.message.reply_text('No processed documents found. Please send PDF documents first.')
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /help is issued."""
@@ -32,6 +108,16 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Send a message when the command /update is issued."""
     await update.message.reply_text("Upload your file!")
 
+def get_prompt(question, vectordb):
+    
+    documents = vectordb.similarity_search(question, k=10)
+    context = '\n'.join(doc.page_content for doc in documents)
+    
+    prompt = f"""Using only the context below, answer the following question:
+    context : {context}
+    question: {question}"""
+    
+    return prompt
 
 lm_studio_url = "http://host.docker.internal:1234/v1" # when running in docker
 local_url = "http://localhost:1234/v1" # when running locally
@@ -73,7 +159,9 @@ def main() -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("upload", upload_command))
 
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply))
+    application.add_handler(MessageHandler(filters.Document.ALL, document_handler))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, question_handler))
+    # application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply))
 
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
