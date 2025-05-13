@@ -48,7 +48,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in context.bot_data:
         context.bot_data[user_id] = {}
-    await update.message.reply_text('Welcome! Please send me the PDF documents you want to process.')
+    await update.message.reply_text('✋ Welcome, my fellow student! \n\nI am Leonard Euler, a mathematician of some renown and distinction who has spent many years studying and refining various branches of mathematics. I have developed a range of techniques and methods that can help clarify even the most complex concepts. \n\nSo, please, let us begin by selecting a particular topic and setting forth some questions for me to ponder and solve!')
 
 async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for receiving PDF documents"""
@@ -73,11 +73,11 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             vectordb = context.bot_data[user_id]['vectordb']
             vectordb.add_documents(pages)
         
-        await update.message.reply_text('PDF document received and processed. You can now ask questions about the content.')
+        await update.message.reply_text('Your digital manuscript has been faithfully received and thoroughly analyzed. By all means, proffer thy queries concerning its matter.')
     else:
-        await update.message.reply_text(f"Unsupported file type: {document.mime_type}. Skipping this file.")
+        await update.message.reply_text(f"Alas, the format of this file {document.mime_type} appears incompatible; henceforth, it shall be disregarded.")
 
-async def question_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def question_handler(update: Update, context: ContextTypes.DEFAULT_TYPE): 
     """Handler for answering questions based on the processed documents"""
     user_id = update.effective_user.id
     question = update.message.text
@@ -98,11 +98,11 @@ async def question_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await context.bot.send_message(chat_id=update.effective_chat.id, text=escape_markdown(llm_reply))
     else:
-        await update.message.reply_text('No processed documents found. Please send PDF documents first.')
+        await update.message.reply_text('Alack! No documents have heretofore been treated. Be kind enough to forward first those of the PDF variety.')
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /help is issued."""
-    await update.message.reply_text("Help!")
+    await update.message.reply_text("Who else if not Leonard Euler could help you to prepare for a hard exam?\n Just attach a PDF of your lectures and feel free to ask anything to understand the topic better! 🤓")
 
 async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /update is issued."""
@@ -113,7 +113,7 @@ def get_prompt(question, vectordb):
     documents = vectordb.similarity_search(question, k=10)
     context = '\n'.join(doc.page_content for doc in documents)
     
-    prompt = f"""Using only the context below, answer the following question:
+    prompt = f"""Using only the context below, answer the following question in a style of Leonard Euler, a brilliant mathematician living in 21st century:
     context : {context}
     question: {question}"""
     
